@@ -2,6 +2,7 @@
 // QikHUB server
 // Serves the app from /public and proxies AI requests to OpenAI
 // or Claude so your API key never reaches the browser.
+// Everything is behind a password (APP_PASSWORD).
 //
 //   npm start          → http://localhost:3000
 //
@@ -14,6 +15,7 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -422,6 +424,229 @@ async function serveStatic(req, res, pathname) {
 }
 
 
+// ---------- login + security ----------
+//
+// APP_PASSWORD   the password you type to get in (required)
+// SESSION_SECRET optional; changing it (or the password) logs everyone out
+
+const APP_PASSWORD = process.env.APP_PASSWORD || "";
+const SESSION_DAYS = Number(process.env.SESSION_DAYS) || 30;
+const AI_CALLS_PER_HOUR = Number(process.env.AI_CALLS_PER_HOUR) || 60;
+const LOGIN_ATTEMPTS = 5;               // wrong passwords allowed...
+const LOGIN_WINDOW_MS = 15 * 60 * 1000; // ...per 15 minutes, per device
+
+const SESSION_KEY = crypto.createHash("sha256")
+  .update(`${process.env.SESSION_SECRET || ""}|${APP_PASSWORD}|qikhub-session`)
+  .digest();
+
+const COOKIE = "qik_session";
+
+function sign(value) {
+  return crypto.createHmac("sha256", SESSION_KEY).update(value).digest("base64url");
+}
+
+function makeSessionCookie(req) {
+  const expires = Date.now() + SESSION_DAYS * 86400000;
+  const nonce = crypto.randomBytes(9).toString("base64url");
+  const value = `${expires}.${nonce}`;
+  return cookieHeader(req, `${value}.${sign(value)}`, SESSION_DAYS * 86400);
+}
+
+function cookieHeader(req, value, maxAge) {
+  const secure = isHttps(req) ? "; Secure" : "";
+  return `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+}
+
+function isHttps(req) {
+  return (req.headers["x-forwarded-proto"] || "").split(",")[0].trim() === "https";
+}
+
+function readCookie(req, name) {
+  for (const part of (req.headers.cookie || "").split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) return rest.join("=");
+  }
+  return "";
+}
+
+function isLoggedIn(req) {
+  const [expires, nonce, signature] = readCookie(req, COOKIE).split(".");
+  if (!expires || !nonce || !signature) return false;
+  if (Number(expires) < Date.now()) return false;
+  return safeEqual(signature, sign(`${expires}.${nonce}`));
+}
+
+// Compares without leaking how many characters matched
+function safeEqual(a, b) {
+  const ha = crypto.createHash("sha256").update(String(a)).digest();
+  const hb = crypto.createHash("sha256").update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+function clientIP(req) {
+  // Render and most hosts put the real visitor address first in this header
+  return (req.headers["x-forwarded-for"] || "").split(",")[0].trim()
+    || req.socket.remoteAddress || "unknown";
+}
+
+// Simple in-memory counters: { key → [timestamps] }
+function makeLimiter(max, windowMs) {
+  const hits = new Map();
+
+  setInterval(() => {
+    const cutoff = Date.now() - windowMs;
+    for (const [key, times] of hits) {
+      const recent = times.filter(t => t > cutoff);
+      if (recent.length) hits.set(key, recent); else hits.delete(key);
+    }
+  }, 60000).unref();
+
+  return {
+    blocked(key) {
+      const cutoff = Date.now() - windowMs;
+      return (hits.get(key) || []).filter(t => t > cutoff).length >= max;
+    },
+    hit(key) {
+      hits.set(key, [...(hits.get(key) || []), Date.now()]);
+    },
+    reset(key) {
+      hits.delete(key);
+    }
+  };
+}
+
+const loginLimiter = makeLimiter(LOGIN_ATTEMPTS, LOGIN_WINDOW_MS);
+const aiLimiter = makeLimiter(AI_CALLS_PER_HOUR, 60 * 60 * 1000);
+
+// Blocks other websites from making your browser send requests here
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
+}
+
+function readFormBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", chunk => {
+      data += chunk;
+      if (data.length > 10000) { req.destroy(); reject(httpError(413, "Too large.")); }
+    });
+    req.on("end", () => resolve(new URLSearchParams(data)));
+    req.on("error", reject);
+  });
+}
+
+function redirect(res, location, headers = {}) {
+  res.writeHead(303, { Location: location, "Cache-Control": "no-store", ...headers });
+  res.end();
+}
+
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  // "same-origin" (not "no-referrer") so browsers still tell us a form came from this site
+  "Referrer-Policy": "same-origin",
+  "Permissions-Policy": "geolocation=(), microphone=()",
+  "Content-Security-Policy":
+    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; " +
+    "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
+};
+
+function loginPage({ error = "", notice = "" } = {}) {
+  const message = error || notice;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#111318">
+<meta name="robots" content="noindex">
+<title>QikHUB · Sign in</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 20px;
+    background: radial-gradient(circle at top right, #172217 0, transparent 35%), #0c0e12;
+    color: #f5f7fa; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  form {
+    width: min(380px, 100%); padding: 30px;
+    background: #15181f; border: 1px solid #292e39; border-radius: 20px;
+  }
+  .logo { font-size: 30px; font-weight: 900; letter-spacing: -1px; }
+  .logo span { color: #a7ff3f; }
+  .tagline { font-size: 9px; letter-spacing: 2px; color: #8d95a5; margin-bottom: 26px; }
+  label { display: block; color: #8d95a5; font-size: 13px; }
+  input {
+    width: 100%; margin-top: 6px; padding: 14px; font: inherit;
+    background: #1b1f28; color: #f5f7fa; border: 1px solid #292e39; border-radius: 12px; outline: none;
+  }
+  input:focus { border-color: #a7ff3f; }
+  button {
+    width: 100%; margin-top: 16px; padding: 14px; font: inherit; font-weight: 900; cursor: pointer;
+    border: none; border-radius: 12px; background: #a7ff3f; color: #10140b;
+  }
+  .message {
+    margin: 0 0 16px; padding: 12px; border-radius: 10px; font-size: 14px;
+    background: ${error ? "rgba(255,107,107,0.12)" : "rgba(167,255,63,0.1)"};
+    color: ${error ? "#ff6b6b" : "#a7ff3f"};
+  }
+</style>
+</head>
+<body>
+  <form method="post" action="/login">
+    <div class="logo">Qik<span>HUB</span></div>
+    <div class="tagline">INVENTORY • INSPIRE • CREATE</div>
+    ${message ? `<p class="message">${message}</p>` : ""}
+    <label>Password
+      <input type="password" name="password" autocomplete="current-password" required autofocus>
+    </label>
+    <button type="submit">Unlock</button>
+  </form>
+</body>
+</html>`;
+}
+
+function sendHTML(res, status, html, headers = {}) {
+  res.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    ...headers
+  });
+  res.end(html);
+}
+
+async function handleLogin(req, res) {
+  const ip = clientIP(req);
+
+  if (loginLimiter.blocked(ip)) {
+    sendHTML(res, 429, loginPage({ error: "Too many wrong tries. Wait 15 minutes and try again." }));
+    return;
+  }
+
+  const form = await readFormBody(req);
+  const password = form.get("password") || "";
+
+  if (APP_PASSWORD && safeEqual(password, APP_PASSWORD)) {
+    loginLimiter.reset(ip);
+    redirect(res, "/", { "Set-Cookie": makeSessionCookie(req) });
+    return;
+  }
+
+  loginLimiter.hit(ip);
+  console.warn(`Failed login from ${ip}`);
+
+  // A small pause makes guessing even slower
+  await new Promise(r => setTimeout(r, 800));
+  redirect(res, "/login?error=1");
+}
+
+
 // ---------- router ----------
 
 const routes = {
@@ -430,9 +655,55 @@ const routes = {
 };
 
 const server = http.createServer(async (req, res) => {
-  const { pathname } = new URL(req.url, "http://localhost");
+  const { pathname, searchParams } = new URL(req.url, "http://localhost");
+
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
 
   try {
+    // Some privacy settings make browsers send "Origin: null" on form posts;
+    // that's harmless for the login form itself, so only it is allowed through.
+    const loginPost = pathname === "/login" && req.method === "POST" && req.headers.origin === "null";
+
+    if (req.method !== "GET" && req.method !== "HEAD" && !sameOrigin(req) && !loginPost) {
+      throw httpError(403, "Request blocked.");
+    }
+
+    // ----- public: login / logout -----
+
+    if (!APP_PASSWORD) {
+      sendHTML(res, 503, loginPage({
+        error: "QikHUB is locked because no password is set. Add APP_PASSWORD to the server's environment settings, then restart it."
+      }));
+      return;
+    }
+
+    if (pathname === "/login" && req.method === "GET") {
+      if (isLoggedIn(req)) return redirect(res, "/");
+      sendHTML(res, 200, loginPage({
+        error: searchParams.has("error") ? "Wrong password." : "",
+        notice: searchParams.has("out") ? "You're signed out." : ""
+      }));
+      return;
+    }
+
+    if (pathname === "/login" && req.method === "POST") {
+      await handleLogin(req, res);
+      return;
+    }
+
+    if (pathname === "/logout") {
+      redirect(res, "/login?out=1", { "Set-Cookie": cookieHeader(req, "", 0) });
+      return;
+    }
+
+    // ----- everything below needs a login -----
+
+    if (!isLoggedIn(req)) {
+      if (pathname.startsWith("/api/")) throw httpError(401, "Please sign in again.");
+      redirect(res, "/login");
+      return;
+    }
+
     if (req.method === "GET" && pathname === "/api/health") {
       sendJSON(res, 200, { ok: true, ai: Boolean(API_KEY), model: API_KEY ? MODEL : null });
       return;
@@ -441,7 +712,14 @@ const server = http.createServer(async (req, res) => {
     const handler = routes[`${req.method} ${pathname}`];
 
     if (handler) {
-      if (!API_KEY) throw httpError(503, "AI is off: add OPENAI_API_KEY to the .env file and restart the server.");
+      if (!API_KEY) throw httpError(503, "AI is off: add OPENAI_API_KEY to the server's settings and restart it.");
+
+      const ip = clientIP(req);
+      if (aiLimiter.blocked(ip)) {
+        throw httpError(429, `That's ${AI_CALLS_PER_HOUR} AI requests this hour. Take a breather and try again soon.`);
+      }
+      aiLimiter.hit(ip);
+
       const body = await readJSONBody(req);
       sendJSON(res, 200, await handler(body));
       return;
@@ -458,6 +736,7 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     const status = err.status || 500;
     if (status >= 500 && !err.status) console.error(err);
+    if (res.headersSent) return res.end();
     sendJSON(res, status, { error: err.status ? err.message : "Something went wrong on the server." });
   }
 });
@@ -475,6 +754,14 @@ server.listen(PORT, HOST, () => {
   }
 
   console.log(API_KEY
-    ? `   AI: on (${PROVIDER}, ${MODEL})\n`
-    : "   AI: OFF. Add OPENAI_API_KEY to .env to turn on Identify + Inspire.\n");
+    ? `   AI: on (${PROVIDER}, ${MODEL})`
+    : "   AI: OFF. Add OPENAI_API_KEY to turn on Identify + Inspire.");
+
+  console.log(APP_PASSWORD
+    ? "   Login: password required ✓\n"
+    : "   Login: NO PASSWORD SET. The app stays locked until you add APP_PASSWORD.\n");
+
+  if (APP_PASSWORD && APP_PASSWORD.length < 10) {
+    console.warn("   ⚠ APP_PASSWORD is short. Use at least 10 characters.\n");
+  }
 });
