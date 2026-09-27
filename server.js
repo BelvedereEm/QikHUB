@@ -41,7 +41,13 @@ const PROVIDERS = {
 
 const API_KEY = PROVIDER ? PROVIDERS[PROVIDER].key : "";
 const MODEL = PROVIDER ? PROVIDERS[PROVIDER].model : null;
-const PUBLIC_DIR = path.join(__dirname, "public");
+// Works whether the web files are in a "public" folder or next to server.js
+const PUBLIC_DIR = existsSync(path.join(__dirname, "public", "index.html"))
+  ? path.join(__dirname, "public")
+  : __dirname;
+
+// Never hand these out, even if they sit next to the web files
+const PRIVATE_FILES = new Set(["server.js", "package.json", "package-lock.json"]);
 const MAX_BODY_BYTES = 12 * 1024 * 1024;
 
 const CATEGORIES = [
@@ -382,8 +388,10 @@ async function serveStatic(req, res, pathname) {
   const requested = pathname === "/" ? "/index.html" : decodeURIComponent(pathname);
   const filePath = path.normalize(path.join(PUBLIC_DIR, requested));
 
-  // Block ../ tricks
-  if (!filePath.startsWith(PUBLIC_DIR + path.sep)) {
+  const name = path.basename(filePath);
+
+  // Block ../ tricks, hidden files like .env, and the server's own files
+  if (!filePath.startsWith(PUBLIC_DIR + path.sep) || name.startsWith(".") || PRIVATE_FILES.has(name)) {
     res.writeHead(403).end("Forbidden");
     return;
   }
