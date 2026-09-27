@@ -50,6 +50,12 @@ const PUBLIC_DIR = existsSync(path.join(__dirname, "public", "index.html"))
 
 // Never hand these out, even if they sit next to the web files
 const PRIVATE_FILES = new Set(["server.js", "package.json", "package-lock.json"]);
+
+// Icons load before you sign in (login page, home-screen icon), so they're public.
+const PUBLIC_ASSETS = new Set([
+  "/favicon.svg", "/favicon.ico", "/apple-touch-icon.png",
+  "/icon-192.png", "/icon-512.png", "/site.webmanifest"
+]);
 const MAX_BODY_BYTES = 12 * 1024 * 1024;
 
 const CATEGORIES = [
@@ -567,6 +573,9 @@ function loginPage({ error = "", notice = "" } = {}) {
 <meta name="theme-color" content="#111318">
 <meta name="robots" content="noindex">
 <title>QikHUB · Sign in</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
 <style>
   * { box-sizing: border-box; }
   body {
@@ -693,6 +702,12 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/logout") {
       redirect(res, "/login?out=1", { "Set-Cookie": cookieHeader(req, "", 0) });
+      return;
+    }
+
+    if (PUBLIC_ASSETS.has(pathname) && (req.method === "GET" || req.method === "HEAD")) {
+      if (pathname === "/favicon.ico") return redirect(res, "/favicon.svg");
+      await serveStatic(req, res, pathname);
       return;
     }
 

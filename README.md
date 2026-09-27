@@ -82,13 +82,26 @@ quick and cheap.
 | `OPENAI_MODEL` | `gpt-6-luna` | Any OpenAI model with image input and function calling |
 | `ANTHROPIC_API_KEY` | none | Use Claude instead (only if no OpenAI key is set) |
 | `ANTHROPIC_MODEL` | `claude-sonnet-5` | |
+| `APP_PASSWORD` | none | **Required.** The password to get into QikHUB. The app stays locked until it's set. |
+| `AI_CALLS_PER_HOUR` | `60` | Cap on AI requests per device, to protect your credit |
+| `SESSION_DAYS` | `30` | How long you stay signed in |
 | `PORT` | `3000` | |
 
 **Never commit `.env`.** It's already listed in `.gitignore`.
 
+## Security
+
+- Every page and API route needs a sign-in with `APP_PASSWORD`. Sessions use a signed,
+  HttpOnly cookie; changing the password signs everyone out.
+- 5 wrong passwords from one device locks it out for 15 minutes.
+- AI requests are capped per hour (`AI_CALLS_PER_HOUR`).
+- Requests from other websites are blocked, and `server.js`, `package.json` and
+  dot-files like `.env` are never served.
+- Still set a monthly spending limit in your OpenAI billing settings as a backstop.
+
 ## Putting it online
 
-Keep the server private to your home network, or add a login before hosting it
-publicly: anyone who can reach the server can use your AI credits. It runs as-is on
+It runs as-is on
 hosts that run Node apps (Render, Railway, Fly.io, a Raspberry Pi); set
-`OPENAI_API_KEY` in the host's environment settings instead of a `.env` file.
+`OPENAI_API_KEY` and `APP_PASSWORD` in the host's environment settings instead of a
+`.env` file.
