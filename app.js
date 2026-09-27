@@ -572,6 +572,7 @@ async function checkAI() {
   } else {
     try {
       const res = await fetch("/api/health", { cache: "no-store" });
+      if (res.status === 401) return goToLogin();
       const data = await res.json();
       aiAvailable = Boolean(data.ai);
     } catch {
@@ -612,8 +613,24 @@ async function api(path, body) {
     body: JSON.stringify(body)
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    goToLogin();
+    throw new Error("Please sign in again.");
+  }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
+}
+
+// Your data stays on this device; signing in again picks up where you left off.
+function goToLogin() {
+  location.href = "/login";
+}
+
+function signOut() {
+  if (location.protocol === "file:") return;
+  if (confirm("Sign out of QikHUB? Your inventory stays saved on this device.")) {
+    location.href = "/logout";
+  }
 }
 
 
@@ -1021,6 +1038,9 @@ function escapeHTML(value = "") {
 
 
 // ---------- INITIALIZE QIKHUB ----------
+
+$(".profile-button").addEventListener("click", signOut);
+$(".profile-button").title = "Sign out";
 
 function initializeQikHUB() {
   updateStats();
