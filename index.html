@@ -2,12 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#111318">
-
   <title>QikHUB</title>
-
   <link rel="stylesheet" href="style.css">
 </head>
 
@@ -19,259 +16,180 @@
     <div class="tagline">INVENTORY • INSPIRE • CREATE</div>
   </div>
 
-  <button class="profile-button">EM</button>
+  <div class="topbar-right">
+    <span id="aiBadge" class="ai-badge" title="AI status">AI…</span>
+    <button class="profile-button" type="button">EM</button>
+  </div>
 </header>
 
 
 <main>
 
   <!-- HOME -->
-
   <section id="home" class="page active">
 
     <div class="hero">
-
       <p class="eyebrow">YOUR MAKER WORKSPACE</p>
-
-      <h1>
-        What will you
-        <span>make next?</span>
-      </h1>
-
+      <h1>What will you <span>make next?</span></h1>
       <p class="hero-text">
         Catalog your components, capture ideas and turn the things
         you already own into something awesome.
       </p>
-
     </div>
 
-
     <div class="quick-actions">
-
-      <button class="action-card" onclick="showPage('identify')">
+      <button class="action-card" type="button" data-action="nav" data-page="identify">
         <div class="action-icon">📸</div>
         <strong>Identify Something</strong>
         <span>Photograph a mystery component</span>
       </button>
 
-      <button class="action-card highlight" onclick="inspireMe()">
+      <button class="action-card highlight" type="button" data-action="inspire">
         <div class="action-icon">✨</div>
         <strong>Inspire Me</strong>
         <span>What can I build?</span>
       </button>
 
-      <button class="action-card" onclick="showPage('ideas')">
+      <button class="action-card" type="button" data-action="capture-idea">
         <div class="action-icon">💡</div>
         <strong>Capture Idea</strong>
         <span>Save it before you forget it</span>
       </button>
-
     </div>
-
 
     <div class="stats">
-
-      <div class="stat">
+      <button class="stat" type="button" data-action="nav" data-page="inventory">
         <span id="inventoryCount">0</span>
         <small>ITEMS</small>
-      </div>
-
-      <div class="stat">
+      </button>
+      <button class="stat" type="button" data-action="nav" data-page="ideas">
         <span id="ideaCount">0</span>
         <small>IDEAS</small>
-      </div>
-
-      <div class="stat">
+      </button>
+      <button class="stat" type="button" data-action="nav" data-page="projects">
         <span id="projectCount">0</span>
         <small>PROJECTS</small>
-      </div>
-
+      </button>
     </div>
 
-
     <section class="panel">
-
       <div class="panel-heading">
         <div>
           <p class="eyebrow">QIKHUB THINKS...</p>
           <h2>You could build</h2>
         </div>
-
-        <button onclick="inspireMe()">↻</button>
+        <button type="button" data-action="inspire" aria-label="New suggestions">↻</button>
       </div>
 
-      <div id="inspirationCard" class="inspiration">
-
-        <div class="inspiration-icon">⚡</div>
-
-        <div>
-          <h3>Add some components first.</h3>
-          <p>
-            Once QikHUB knows what you own, this space will suggest
-            things you can make with it.
-          </p>
+      <div id="inspirationCard">
+        <div class="inspiration">
+          <div class="inspiration-icon">⚡</div>
+          <div>
+            <h3>Add some components first.</h3>
+            <p>Once QikHUB knows what you own, this space will suggest things you can make with it.</p>
+          </div>
         </div>
-
       </div>
-
     </section>
 
   </section>
 
 
   <!-- INVENTORY -->
-
   <section id="inventory" class="page">
-
     <p class="eyebrow">YOUR STUFF</p>
     <h1>Inventory</h1>
 
     <div class="toolbar">
-
-      <input
-        id="inventorySearch"
-        type="search"
-        placeholder="Search components..."
-        oninput="renderInventory()"
-      >
-
-      <button class="primary" onclick="openInventoryForm()">
-        + Add Item
-      </button>
-
+      <input id="inventorySearch" type="search" placeholder="Search components...">
+      <button class="primary" type="button" data-action="open-inventory">+ Add Item</button>
     </div>
 
     <div id="inventoryList" class="card-grid"></div>
-
   </section>
 
 
   <!-- IDENTIFY -->
-
   <section id="identify" class="page">
-
     <p class="eyebrow">QIK AI VISION</p>
     <h1>What is this?</h1>
 
     <p class="section-description">
-      Take or upload a photo of an electronic component.
-      Eventually QikHUB AI will identify it and prepare an
-      inventory entry automatically.
+      Take or upload a photo of an electronic component and QikHUB AI
+      will identify it and prepare an inventory entry for you.
     </p>
 
     <label class="camera-box">
-
       <div class="camera-icon">📷</div>
-
       <strong>Photograph Component</strong>
-
       <span>Tap to open your camera or photo library</span>
-
-      <input
-        id="componentPhoto"
-        type="file"
-        accept="image/*"
-        capture="environment"
-        onchange="previewPhoto(event)"
-      >
-
+      <input id="componentPhoto" type="file" accept="image/*" capture="environment">
     </label>
 
     <div id="photoPreview"></div>
 
-    <div class="ai-placeholder">
-      <span>✨</span>
-      AI identification will connect here.
+    <div class="identify-actions">
+      <button id="identifyButton" class="primary full" type="button" data-action="identify" disabled>
+        ✨ Identify with AI
+      </button>
     </div>
 
+    <div id="identifyResult">
+      <div id="aiStatus" class="ai-placeholder">
+        <span>✨</span> Checking whether AI is available…
+      </div>
+    </div>
   </section>
 
 
   <!-- IDEAS -->
-
   <section id="ideas" class="page">
-
     <p class="eyebrow">THE QUEUE</p>
     <h1>Ideas</h1>
 
     <form id="ideaForm" class="idea-form">
-
-      <input
-        id="ideaInput"
-        type="text"
-        placeholder="What do you want to make?"
-        required
-      >
-
-      <button class="primary">
-        Save Idea
-      </button>
-
+      <input id="ideaInput" type="text" placeholder="What do you want to make?" required>
+      <button class="primary" type="submit">Save Idea</button>
     </form>
 
     <div id="ideaList" class="list"></div>
-
   </section>
 
 
   <!-- PROJECTS -->
-
   <section id="projects" class="page">
-
     <p class="eyebrow">BUILD MODE</p>
     <h1>Projects</h1>
 
-    <div id="projectList">
-
-      <div class="empty-state">
-
-        <div>🛠️</div>
-
-        <h2>No active projects</h2>
-
-        <p>
-          When an idea becomes something you're actually building,
-          it'll live here.
-        </p>
-
+    <div class="toolbar">
+      <div class="filter-tabs" id="projectFilters">
+        <button type="button" class="filter active" data-action="project-filter" data-filter="active">Active</button>
+        <button type="button" class="filter" data-action="project-filter" data-filter="done">Done</button>
+        <button type="button" class="filter" data-action="project-filter" data-filter="all">All</button>
       </div>
-
+      <button class="primary" type="button" data-action="open-project">+ New Project</button>
     </div>
 
+    <div id="projectList" class="project-list"></div>
   </section>
 
 </main>
 
 
 <!-- ADD INVENTORY MODAL -->
-
 <div id="inventoryModal" class="modal">
-
   <div class="modal-card">
-
-    <button
-      class="close-button"
-      onclick="closeInventoryForm()"
-    >
-      ×
-    </button>
+    <button class="close-button" type="button" data-action="close-modal" aria-label="Close">×</button>
 
     <p class="eyebrow">NEW COMPONENT</p>
     <h2>Add to Inventory</h2>
 
     <form id="inventoryForm">
-
-      <label>
-        Name
-        <input
-          id="itemName"
-          placeholder="Arduino Uno R3"
-          required
-        >
+      <label>Name
+        <input id="itemName" placeholder="Arduino Uno R3" required>
       </label>
 
-      <label>
-        Category
+      <label>Category
         <select id="itemCategory">
           <option>Microcontroller</option>
           <option>Motor</option>
@@ -286,72 +204,70 @@
         </select>
       </label>
 
-      <label>
-        Quantity
-        <input
-          id="itemQuantity"
-          type="number"
-          value="1"
-          min="1"
-        >
+      <label>Quantity
+        <input id="itemQuantity" type="number" value="1" min="1">
       </label>
 
-      <label>
-        Storage Location
-        <input
-          id="itemLocation"
-          placeholder="Electronics bin"
-        >
+      <label>Storage Location
+        <input id="itemLocation" placeholder="Electronics bin">
       </label>
 
-      <label>
-        Notes
-        <textarea
-          id="itemNotes"
-          placeholder="Voltage, pinout, where it came from..."
-        ></textarea>
+      <label>Notes
+        <textarea id="itemNotes" placeholder="Voltage, pinout, where it came from..."></textarea>
       </label>
 
-      <button class="primary full">
-        Add Component
-      </button>
-
+      <button class="primary full" type="submit">Add Component</button>
     </form>
-
   </div>
-
 </div>
 
 
+<!-- NEW PROJECT MODAL -->
+<div id="projectModal" class="modal">
+  <div class="modal-card">
+    <button class="close-button" type="button" data-action="close-modal" aria-label="Close">×</button>
+
+    <p class="eyebrow">BUILD MODE</p>
+    <h2>New Project</h2>
+
+    <form id="projectForm">
+      <label>Project name
+        <input id="projectTitle" placeholder="Motion-activated night light" required>
+      </label>
+
+      <label>Notes
+        <textarea id="projectNotes" placeholder="What it should do, links, sketches..."></textarea>
+      </label>
+
+      <button class="primary full" type="submit">Create Project</button>
+    </form>
+  </div>
+</div>
+
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+
 <nav class="bottom-nav">
-
-  <button class="nav-button active" onclick="showPage('home', this)">
-    <span>⌂</span>
-    Hub
+  <button class="nav-button active" type="button" data-action="nav" data-page="home">
+    <span>⌂</span>Hub
   </button>
-
-  <button class="nav-button" onclick="showPage('inventory', this)">
-    <span>▦</span>
-    Inventory
+  <button class="nav-button" type="button" data-action="nav" data-page="inventory">
+    <span>▦</span>Inventory
   </button>
-
-  <button class="nav-button identify-nav" onclick="showPage('identify', this)">
+  <button class="nav-button identify-nav" type="button" data-action="nav" data-page="identify" aria-label="Identify">
     <span>＋</span>
   </button>
-
-  <button class="nav-button" onclick="showPage('ideas', this)">
-    <span>◇</span>
-    Ideas
+  <button class="nav-button" type="button" data-action="nav" data-page="ideas">
+    <span>◇</span>Ideas
   </button>
-
-  <button class="nav-button" onclick="showPage('projects', this)">
-    <span>⚒</span>
-    Projects
+  <button class="nav-button" type="button" data-action="nav" data-page="projects">
+    <span>⚒</span>Projects
   </button>
-
 </nav>
 
 
+<script src="recipes.js"></script>
 <script src="app.js"></script>
 
 </body>
