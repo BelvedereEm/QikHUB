@@ -104,29 +104,42 @@ async function askOpenAI({ system, content, tool, maxTokens = 1500 }) {
     ? { type: "image_url", image_url: { url: `data:${part.mediaType};base64,${part.data}` } }
     : { type: "text", text: part.text });
 
-  const response = await fetch(url, {
+  const body = {
+    model,
+    max_completion_tokens: maxTokens * 2,
+    // Newer GPT models only allow function tools on this endpoint with
+    // reasoning switched off. Older models don't know this setting, so
+    // it's removed and the request retried if OpenAI rejects it.
+    reasoning_effort: "none",
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: userContent }
+    ],
+    tools: [{
+      type: "function",
+      function: { name: tool.name, description: tool.description, parameters: tool.input_schema }
+    }],
+    tool_choice: { type: "function", function: { name: tool.name } }
+  };
+
+  const send = () => fetch(url, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${key}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      model,
-      // Extra room because some OpenAI models spend tokens thinking first
-      max_completion_tokens: maxTokens * 3,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: userContent }
-      ],
-      tools: [{
-        type: "function",
-        function: { name: tool.name, description: tool.description, parameters: tool.input_schema }
-      }],
-      tool_choice: { type: "function", function: { name: tool.name } }
-    })
+    body: JSON.stringify(body)
   });
 
-  const data = await response.json().catch(() => ({}));
+  let response = await send();
+  let data = await response.json().catch(() => ({}));
+
+  if (response.status === 400 && /reasoning_effort|reasoning effort/i.test(data?.error?.message || "")
+      && !/set reasoning_effort to "none"/i.test(data?.error?.message || "")) {
+    delete body.reasoning_effort;
+    response = await send();
+    data = await response.json().catch(() => ({}));
+  }
 
   if (!response.ok) {
     const message = data?.error?.message || `OpenAI API returned ${response.status}`;
